@@ -266,25 +266,26 @@ R.dashboard=function(){
     `<div class="card"><div class="lbl">Activities<span>🔥${ac}cal</span></div>${day.activities.map(a=>`<div class="li"><div><div class="lin">${esc(a.name)}</div><div class="lis">${a.duration?a.duration+'min · ':''}${a.type}</div></div><span class="chip ca">-${a.calories}</span></div>`).join('')}</div>`;
 
   const me=Object.entries(day.meas||{}).filter(([,v])=>v);
+  const isImpD = bUnit==='imperial';
   const mp=!me.length?'':
-    `<div class="card"><div class="lbl">Measurements</div><div class="mgrid">${me.map(([k,v])=>`<div class="mc"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">${k}</div><span style="font-size:17px;font-weight:700;font-family:'DM Mono',monospace">${v}</span><span style="font-size:10px;color:var(--muted)"> ${k==='weight'?'kg':'cm'}</span></div>`).join('')}</div></div>`;
+    `<div class="card"><div class="lbl">Measurements<span style="font-size:10px;color:var(--muted)">${isImpD?'lbs / in':'kg / cm'}</span></div><div class="mgrid">${me.map(([k,v])=>{
+      const disp = isImpD ? (k==='weight'?kgToLbs(v):cmToIn(v)) : v;
+      const unit = isImpD ? (k==='weight'?'lbs':'in') : (k==='weight'?'kg':'cm');
+      return`<div class="mc"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">${k}</div><span style="font-size:17px;font-weight:700;font-family:'DM Mono',monospace">${disp}</span><span style="font-size:10px;color:var(--muted)"> ${unit}</span></div>`;
+    }).join('')}</div></div>`;
 
   document.getElementById('tab-dashboard').innerHTML=`
     <div class="card card-h">
       <div class="lbl">Calories</div>
-      <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:11px">
-        <div>
-          <div style="font-size:46px;font-weight:800;font-family:'Syne',sans-serif;line-height:1">${Math.round(net)}</div>
-          <div style="font-size:12px;color:var(--muted)">net calories</div>
-        </div>
-        <div style="text-align:right;font-size:13px;line-height:1.9">
-          <div style="color:var(--muted)">Goal <b style="color:#fff">${g.calories}</b></div>
-          <div style="color:var(--green)">Burned <b>${ac}</b></div>
-          <div style="color:var(--purple)">Eaten <b>${Math.round(t.cal)}</b></div>
-        </div>
+      <div style="font-size:54px;font-weight:800;font-family:'Syne',sans-serif;line-height:1;letter-spacing:-1px;margin-bottom:4px">${Math.round(net)}</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:12px">net calories</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-bottom:12px;text-align:center">
+        <div style="background:rgba(255,255,255,.05);border-radius:8px;padding:7px 4px"><div style="font-size:14px;font-weight:800;color:#fff">${g.calories}</div><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Goal</div></div>
+        <div style="background:rgba(255,255,255,.05);border-radius:8px;padding:7px 4px"><div style="font-size:14px;font-weight:800;color:var(--purple)">${Math.round(t.cal)}</div><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Eaten</div></div>
+        <div style="background:rgba(255,255,255,.05);border-radius:8px;padding:7px 4px"><div style="font-size:14px;font-weight:800;color:var(--green)">${ac}</div><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Burned</div></div>
+        <div style="background:rgba(255,255,255,.05);border-radius:8px;padding:7px 4px"><div style="font-size:14px;font-weight:800;color:var(--amber)">${rem}</div><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Left</div></div>
       </div>
       ${bar(net,g.calories,'linear-gradient(90deg,#7c3aed,#34d399)')}
-      <div style="font-size:11px;color:var(--muted);margin-top:5px;text-align:right">${rem} remaining</div>
     </div>
     <div class="card">
       <div class="lbl">Macros</div>
@@ -593,53 +594,168 @@ function addAct(){
 function rmAct(i){setDay(cur,d=>({...d,activities:d.activities.filter((_,idx)=>idx!==i)}));R.activity();if(activeTab==='dashboard')R.dashboard()}
 
 // ── WATER ─────────────────────────────────────────────────────────────────────
+let wUnit='ml'; // 'ml' or 'oz'
+function ozToMl(oz){return Math.round(oz*29.5735)}
+function mlToOz(ml){return (ml/29.5735).toFixed(1)}
+
 R.water=function(){
   const day=getDay(cur),w=day.water||0,goal=S.goals.water,rem=Math.max(0,goal-w);
-  const glasses=Math.round(w/250),tg=Math.ceil(goal/250);
+  const isOz=wUnit==='oz';
+  const disp=isOz?mlToOz(w):w;
+  const dispGoal=isOz?mlToOz(goal):goal;
+  const dispRem=isOz?mlToOz(rem):rem;
+  const unit=isOz?'oz':'ml';
+
+  // Glass tracker uses 8oz (237ml) in oz mode, 250ml in ml mode
+  const glassSize=isOz?237:250;
+  const glasses=Math.round(w/glassSize),tg=Math.ceil(goal/glassSize);
+
+  // Quick add presets — ml and oz versions
+  const mlPresets=[[150,'150ml'],[250,'250ml'],[330,'330ml'],[500,'500ml'],[750,'750ml'],[1000,'1L']];
+  const ozPresets=[[ozToMl(4),'4oz'],[ozToMl(8),'8oz'],[ozToMl(12),'12oz'],[ozToMl(16),'16oz'],[ozToMl(20),'20oz'],[ozToMl(32),'32oz']];
+  const presets=isOz?ozPresets:mlPresets;
+
   document.getElementById('tab-water').innerHTML=`
     <div class="card" style="text-align:center;padding:22px">
       <div style="font-size:52px">💧</div>
-      <div style="font-size:50px;font-weight:800;font-family:'DM Mono',monospace;color:var(--blue);line-height:1">${w}</div>
-      <div style="font-size:13px;color:var(--muted);margin:4px 0 14px">of ${goal} ml goal</div>
+      <div style="font-size:50px;font-weight:800;font-family:'DM Mono',monospace;color:var(--blue);line-height:1">${disp}</div>
+      <div style="font-size:13px;color:var(--muted);margin:4px 0 2px">${unit} of ${dispGoal}${unit} goal</div>
+      <!-- unit toggle -->
+      <div style="display:flex;justify-content:center;gap:6px;margin:10px 0 14px">
+        <button onclick="wUnit='ml';R.water()" style="padding:5px 14px;border-radius:20px;border:none;cursor:pointer;font-size:12px;font-weight:700;font-family:'DM Sans',sans-serif;background:${!isOz?'var(--blue)':'rgba(255,255,255,.08)'};color:${!isOz?'#000':'var(--muted)'}">ml</button>
+        <button onclick="wUnit='oz';R.water()" style="padding:5px 14px;border-radius:20px;border:none;cursor:pointer;font-size:12px;font-weight:700;font-family:'DM Sans',sans-serif;background:${isOz?'var(--blue)':'rgba(255,255,255,.08)'};color:${isOz?'#000':'var(--muted)'}">oz</button>
+      </div>
       ${bar(w,goal,'linear-gradient(90deg,#0ea5e9,#38bdf8)')}
-      <div style="font-size:13px;margin-top:8px;color:${w>=goal?'var(--green)':'var(--muted)'}">${w>=goal?'🎉 Goal reached!':rem+' ml remaining'}</div>
+      <div style="font-size:13px;margin-top:8px;color:${w>=goal?'var(--green)':'var(--muted)'}">${w>=goal?'🎉 Goal reached!':`${dispRem}${unit} remaining`}</div>
     </div>
+
     <div class="card">
-      <div class="lbl">Glasses (250ml each)</div>
-      <div class="wglasses">${Array.from({length:tg},(_,i)=>`<span class="gl ${i>=glasses?'empty':''}" onclick="addW(${i<glasses?-250:250})">💧</span>`).join('')}</div>
+      <div class="lbl">${isOz?'Glasses (8oz each)':'Glasses (250ml each)'}</div>
+      <div class="wglasses">${Array.from({length:Math.min(tg,16)},(_,i)=>`<span class="gl ${i>=glasses?'empty':''}" onclick="addW(${i<glasses?-glassSize:glassSize})">💧</span>`).join('')}</div>
     </div>
+
     <div class="card">
       <div class="lbl">Quick Add</div>
-      <div class="qgrid">${[150,250,330,500,750,1000].map(ml=>`<button class="btn bg" onclick="addW(${ml})">+${ml}ml</button>`).join('')}</div>
-      <div style="display:flex;gap:8px;margin-top:8px">
-        <button class="btn bd" style="flex:1" onclick="addW(-250)">− 250ml</button>
-        <button class="btn bd" style="flex:1" onclick="setDay(cur,d=>({...d,water:0}));R.water()">Reset</button>
+      <div class="qgrid">${presets.map(([ml,label])=>`<button class="btn bg" onclick="addW(${ml})">+${label}</button>`).join('')}</div>
+    </div>
+
+    <div class="card">
+      <div class="lbl">Custom Amount</div>
+      <div style="display:flex;gap:8px;align-items:flex-end">
+        <div style="flex:1">
+          <input type="number" id="customWater" placeholder="Enter amount…" min="0" step="${isOz?'0.5':'10'}" style="font-size:16px;font-weight:700">
+        </div>
+        <div style="flex:0 0 90px">
+          <select id="customWUnit" style="height:44px">
+            <option value="ml" ${!isOz?'selected':''}>ml</option>
+            <option value="oz" ${isOz?'selected':''}>oz</option>
+          </select>
+        </div>
+        <button class="btn bp" style="flex:0 0 60px;height:44px" onclick="addCustomW()">＋</button>
       </div>
+    </div>
+
+    <div style="display:flex;gap:8px;padding-bottom:4px">
+      <button class="btn bd" style="flex:1" onclick="addW(${isOz?-237:-250})">− 1 glass</button>
+      <button class="btn bd" style="flex:1" onclick="setDay(cur,d=>({...d,water:0}));R.water()">Reset</button>
     </div>`;
 };
+
 function addW(ml){setDay(cur,d=>({...d,water:Math.max(0,(d.water||0)+ml)}));R.water();if(activeTab==='dashboard')R.dashboard()}
 
+function addCustomW(){
+  const val=parseFloat(document.getElementById('customWater').value);
+  const unit=document.getElementById('customWUnit').value;
+  if(isNaN(val)||val<=0){toast('Enter a valid amount');return}
+  const ml=unit==='oz'?ozToMl(val):Math.round(val);
+  addW(ml);
+  document.getElementById('customWater').value='';
+  toast(`Added ${val}${unit}`);
+}
+
 // ── BODY ─────────────────────────────────────────────────────────────────────
+// All values stored in metric (kg, cm). bUnit controls display only.
+let bUnit = 'metric'; // 'metric' or 'imperial'
+
+// Conversion helpers
+function kgToLbs(kg){ return kg ? +(kg*2.20462).toFixed(1) : '' }
+function lbsToKg(lbs){ return lbs ? +(lbs/2.20462).toFixed(2) : '' }
+function cmToIn(cm){ return cm ? +(cm/2.54).toFixed(1) : '' }
+function inToCm(inches){ return inches ? +(inches*2.54).toFixed(1) : '' }
+
+// Convert stored metric value → display value for current unit
+function dispMeas(k, val){
+  if(!val && val!==0) return '';
+  if(bUnit==='imperial'){
+    return k==='weight' ? kgToLbs(val) : cmToIn(val);
+  }
+  return val;
+}
+
+// Convert display input → metric for storage
+function toMetric(k, val){
+  if(isNaN(val)||val==='') return '';
+  if(bUnit==='imperial'){
+    return k==='weight' ? lbsToKg(val) : inToCm(val);
+  }
+  return parseFloat(val);
+}
+
 R.body=function(){
-  const day=getDay(cur),m=day.meas||{};
-  const fields=[{k:'weight',l:'Weight',u:'kg',ic:'⚖️'},{k:'waist',l:'Waist',u:'cm',ic:'📏'},{k:'chest',l:'Chest',u:'cm',ic:'💪'},{k:'hips',l:'Hips',u:'cm',ic:'📐'},{k:'arms',l:'Arms',u:'cm',ic:'💪'},{k:'thighs',l:'Thighs',u:'cm',ic:'🦵'},{k:'neck',l:'Neck',u:'cm',ic:'📏'},{k:'calves',l:'Calves',u:'cm',ic:'🦵'}];
+  const day=getDay(cur), m=day.meas||{};
+  const isImp = bUnit==='imperial';
+
+  const fields=[
+    {k:'weight', l:'Weight',  ic:'⚖️', uM:'kg',  uI:'lbs'},
+    {k:'waist',  l:'Waist',   ic:'📏', uM:'cm',  uI:'in'},
+    {k:'chest',  l:'Chest',   ic:'💪', uM:'cm',  uI:'in'},
+    {k:'hips',   l:'Hips',    ic:'📐', uM:'cm',  uI:'in'},
+    {k:'arms',   l:'Arms',    ic:'💪', uM:'cm',  uI:'in'},
+    {k:'thighs', l:'Thighs',  ic:'🦵', uM:'cm',  uI:'in'},
+    {k:'neck',   l:'Neck',    ic:'📏', uM:'cm',  uI:'in'},
+    {k:'calves', l:'Calves',  ic:'🦵', uM:'cm',  uI:'in'},
+  ];
+
   document.getElementById('tab-body').innerHTML=`
     <div class="card">
-      <div class="lbl">Body Measurements</div>
-      <div class="g2">${fields.map(f=>`<div class="fld"><div class="lbl" style="margin-bottom:4px">${f.ic} ${f.l} (${f.u})</div><input type="number" step="0.1" id="m_${f.k}" placeholder="${f.l}" value="${m[f.k]||''}"></div>`).join('')}</div>
+      <div class="lbl">Body Measurements
+        <div style="display:flex;gap:5px">
+          <button onclick="bUnit='metric';R.body()" style="padding:4px 11px;border-radius:20px;border:none;cursor:pointer;font-size:11px;font-weight:700;font-family:'DM Sans',sans-serif;background:${!isImp?'var(--purple)':'rgba(255,255,255,.08)'};color:${!isImp?'#fff':'var(--muted)'}">kg / cm</button>
+          <button onclick="bUnit='imperial';R.body()" style="padding:4px 11px;border-radius:20px;border:none;cursor:pointer;font-size:11px;font-weight:700;font-family:'DM Sans',sans-serif;background:${isImp?'var(--purple)':'rgba(255,255,255,.08)'};color:${isImp?'#fff':'var(--muted)'}">lbs / in</button>
+        </div>
+      </div>
+      <div class="g2">
+        ${fields.map(f=>{
+          const stored = m[f.k];
+          const displayed = dispMeas(f.k, stored);
+          const unit = isImp ? f.uI : f.uM;
+          const step = (isImp && f.k==='weight') ? '0.1' : '0.1';
+          return`<div class="fld">
+            <div class="lbl" style="margin-bottom:4px">${f.ic} ${f.l} (${unit})</div>
+            <input type="number" step="${step}" id="m_${f.k}" placeholder="${f.l} in ${unit}" value="${displayed}">
+          </div>`;
+        }).join('')}
+      </div>
       <button class="btn bp bw" style="margin-top:10px" onclick="saveMeas()">✓ Save Measurements</button>
     </div>
     <div style="background:rgba(167,139,250,.05);border:1px solid rgba(167,139,250,.15);border-radius:10px;padding:11px 13px;font-size:12px;color:rgba(255,255,255,.55);line-height:1.65">
-      💡 Measure in the morning before eating, consistently each time.
+      💡 Measure in the morning before eating, consistently each time. Values are always saved in metric (kg/cm) internally.
     </div>`;
 };
+
 function saveMeas(){
   const fields=['weight','waist','chest','hips','arms','thighs','neck','calves'];
   const m={};
-  fields.forEach(k=>{const v=document.getElementById('m_'+k).value;if(v)m[k]=parseFloat(v)});
+  fields.forEach(k=>{
+    const raw = document.getElementById('m_'+k).value;
+    if(raw!=='' && !isNaN(raw)){
+      const metric = toMetric(k, parseFloat(raw));
+      if(metric!=='') m[k] = metric;
+    }
+  });
   setDay(cur,d=>({...d,meas:m}));
   toast('Measurements saved!');
-  if(activeTab==='dashboard')R.dashboard();
+  if(activeTab==='dashboard') R.dashboard();
 }
 
 // ── SETTINGS ─────────────────────────────────────────────────────────────────
@@ -658,9 +774,9 @@ R.settings=function(){
     <div class="card">
       <div class="lbl">Goal Presets</div>
       <div style="display:flex;gap:7px;margin-bottom:11px">
-        <button class="btn bg" style="flex:1" onclick="gPre(1600,160,55,120)">🔥 Cut</button>
-        <button class="btn bg" style="flex:1" onclick="gPre(2000,150,65,225)">⚖️ Maintain</button>
-        <button class="btn bg" style="flex:1" onclick="gPre(2600,180,80,320)">💪 Bulk</button>
+        <button class="btn bg gp-btn" style="flex:1" onclick="gPre(1600,160,55,120,this)">🔥 Cut</button>
+        <button class="btn bg gp-btn" style="flex:1" onclick="gPre(2000,150,65,225,this)">⚖️ Maintain</button>
+        <button class="btn bg gp-btn" style="flex:1" onclick="gPre(2600,180,80,320,this)">💪 Bulk</button>
       </div>
       <div class="lbl">Daily Targets</div>
       <div class="g2">
@@ -680,7 +796,15 @@ R.settings=function(){
       </div>
     </div>`;
 };
-function gPre(c,p,f,cb){document.getElementById('gC').value=c;document.getElementById('gP').value=p;document.getElementById('gF').value=f;document.getElementById('gCb').value=cb}
+function gPre(c,p,f,cb,btn){
+  document.getElementById('gC').value=c;
+  document.getElementById('gP').value=p;
+  document.getElementById('gF').value=f;
+  document.getElementById('gCb').value=cb;
+  document.querySelectorAll('.gp-btn').forEach(b=>{ b.style.background='rgba(255,255,255,.06)'; b.style.color='var(--text)'; b.style.borderColor='var(--border)'; });
+  if(btn){ btn.style.background='var(--grad)'; btn.style.color='#fff'; btn.style.borderColor='transparent'; }
+  toast('Preset applied — save to confirm');
+}
 function saveSettings(){
   S.profile={name:document.getElementById('sN').value,age:document.getElementById('sA').value,weight:document.getElementById('sW').value,height:document.getElementById('sH').value};
   S.goals={calories:parseInt(document.getElementById('gC').value)||2000,protein:parseInt(document.getElementById('gP').value)||150,fat:parseInt(document.getElementById('gF').value)||65,carbs:parseInt(document.getElementById('gCb').value)||225,water:parseInt(document.getElementById('gW').value)||2500};
@@ -690,9 +814,12 @@ function saveSettings(){
 
 // ── DATA ─────────────────────────────────────────────────────────────────────
 function exportData(){
+  const name = (S.profile&&S.profile.name&&S.profile.name.trim())
+    ? 'nutrilog-' + S.profile.name.trim().toLowerCase().replace(/\s+/g,'-') + '.json'
+    : 'nutrilog-data.json';
   const blob=new Blob([JSON.stringify(S,null,2)],{type:'application/json'});
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`nutrilog-${todayStr()}.json`;a.click();
-  toast('Exported!');
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();
+  toast('Exported as '+name);
 }
 function importData(e){
   const file=e.target.files[0];if(!file)return;
