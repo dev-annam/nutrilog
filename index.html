@@ -789,24 +789,60 @@ function saveMeas(){
 // ── SETTINGS ─────────────────────────────────────────────────────────────────
 R.settings=function(){
   const p=S.profile,g=S.goals;
+  const isImpS=(bUnit==='imperial');
+
+  // Find most recent weight across all days
+  const allDays=Object.values(S.days||{});
+  const lastWeight=allDays.map(d=>d.meas&&d.meas.weight).filter(Boolean).pop();
+  const lastWeightDisp=lastWeight?(isImpS?kgToLbs(lastWeight):lastWeight):null;
+  const lastWeightUnit=isImpS?'lbs':'kg';
+
   document.getElementById('tab-settings').innerHTML=`
     <div class="card">
-      <div class="lbl">Profile</div>
+      <div class="lbl">👤 Profile <span style="font-size:10px;font-weight:400;opacity:.5">Set once — edit anytime</span></div>
       <div class="g2">
-        <div class="fld"><div class="lbl" style="margin-bottom:4px">Name</div><input type="text" id="sN" placeholder="Your name" value="${esc(p.name||'')}"></div>
-        <div class="fld"><div class="lbl" style="margin-bottom:4px">Age</div><input type="number" id="sA" placeholder="years" value="${p.age||''}"></div>
-        <div class="fld"><div class="lbl" style="margin-bottom:4px">Weight (kg)</div><input type="number" id="sW" placeholder="kg" value="${p.weight||''}"></div>
-        <div class="fld"><div class="lbl" style="margin-bottom:4px">Height (cm)</div><input type="number" id="sH" placeholder="cm" value="${p.height||''}"></div>
+        <div class="fld"><div class="lbl" style="margin-bottom:4px">Name</div>
+          <input type="text" id="sN" placeholder="Your name" value="${esc(p.name||'')}"></div>
+        <div class="fld"><div class="lbl" style="margin-bottom:4px">Age</div>
+          <input type="number" id="sA" placeholder="years" value="${p.age||''}"></div>
+      </div>
+      <div class="g2">
+        <div class="fld"><div class="lbl" style="margin-bottom:4px">Height (cm)</div>
+          <input type="number" id="sH" placeholder="e.g. 178" value="${p.height||''}"></div>
+        <div class="fld"><div class="lbl" style="margin-bottom:4px">Biological Sex</div>
+          <select id="sSex">
+            <option value="">—</option>
+            <option value="male" ${p.sex==='male'?'selected':''}>Male</option>
+            <option value="female" ${p.sex==='female'?'selected':''}>Female</option>
+          </select>
+        </div>
       </div>
     </div>
+
     <div class="card">
-      <div class="lbl">Goal Presets</div>
+      <div class="lbl">⚖️ Weight Tracking</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0 10px">
+        <div>
+          ${lastWeightDisp
+            ? `<div style="font-size:32px;font-weight:800;font-family:'DM Mono',monospace;color:var(--accent1)">${lastWeightDisp} <span style="font-size:13px;color:var(--muted)">${lastWeightUnit}</span></div>
+               <div style="font-size:11px;color:var(--muted);margin-top:2px">Most recent logged weight</div>`
+            : `<div style="font-size:13px;color:var(--muted)">No weight logged yet</div>`
+          }
+        </div>
+        <button class="btn bg" onclick="switchTab('body')" style="white-space:nowrap;flex-shrink:0">Log weight →</button>
+      </div>
+      <div style="font-size:11px;color:var(--muted);border-top:1px solid var(--border);padding-top:9px">
+        Track your weight over time in the <b style="color:var(--text)">Body</b> tab — each entry is saved per day.
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="lbl">🎯 Nutrition Goals</div>
       <div style="display:flex;gap:7px;margin-bottom:11px">
         <button class="btn bg gp-btn" style="flex:1" onclick="gPre(1600,160,55,120,this)">🔥 Cut</button>
         <button class="btn bg gp-btn" style="flex:1" onclick="gPre(2000,150,65,225,this)">⚖️ Maintain</button>
         <button class="btn bg gp-btn" style="flex:1" onclick="gPre(2600,180,80,320,this)">💪 Bulk</button>
       </div>
-      <div class="lbl">Daily Targets</div>
       <div class="g2">
         <div class="fld"><div class="lbl" style="margin-bottom:4px">Calories</div><input type="number" id="gC" value="${g.calories}"></div>
         <div class="fld"><div class="lbl" style="margin-bottom:4px">Protein (g)</div><input type="number" id="gP" value="${g.protein}"></div>
@@ -815,12 +851,15 @@ R.settings=function(){
       </div>
       <div class="fld"><div class="lbl" style="margin-bottom:4px">Water (ml)</div><input type="number" id="gW" value="${g.water}"></div>
     </div>
+
+    <button class="btn bp bw" style="font-size:15px;padding:14px;margin-bottom:10px" onclick="saveSettings()">✓ Save Profile & Goals</button>
+
     <div class="card">
       <div class="lbl">🎨 Theme</div>
       <div id="themePicker" style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px"></div>
     </div>
-    <button class="btn bp bw" style="font-size:15px;padding:14px" onclick="saveSettings()">✓ Save Settings</button>
-    <div class="card" style="margin-top:10px">
+
+    <div class="card">
       <div class="lbl">Data</div>
       <div style="display:flex;gap:8px">
         <button class="btn bg" style="flex:1" onclick="exportData()">⬇ Export JSON</button>
@@ -839,9 +878,14 @@ function gPre(c,p,f,cb,btn){
   toast('Preset applied — save to confirm');
 }
 function saveSettings(){
-  S.profile={name:document.getElementById('sN').value,age:document.getElementById('sA').value,weight:document.getElementById('sW').value,height:document.getElementById('sH').value};
+  S.profile={
+    name:document.getElementById('sN').value,
+    age:document.getElementById('sA').value,
+    height:document.getElementById('sH').value,
+    sex:document.getElementById('sSex').value,
+  };
   S.goals={calories:parseInt(document.getElementById('gC').value)||2000,protein:parseInt(document.getElementById('gP').value)||150,fat:parseInt(document.getElementById('gF').value)||65,carbs:parseInt(document.getElementById('gCb').value)||225,water:parseInt(document.getElementById('gW').value)||2500};
-  save();toast('Settings saved!');
+  save();toast('Profile & goals saved!');
   if(S.profile.name)document.getElementById('greeting').textContent=`Hey ${S.profile.name} 👋`;
 }
 
@@ -877,10 +921,8 @@ function applyTheme(id, save=true){
   r.setProperty('--card-h-border', t.cardBorder);
   // Update body bg and header bg
   document.body.style.background = t.bg;
-  document.querySelector('.hdr').style.background = t.bg.replace('#','rgba(') + ',0)'.replace('rgba(','rgba(') || '';
-  // easier: just set a CSS var and use it
   document.querySelector('meta[name="theme-color"]').setAttribute('content', t.bg);
-  if(save){ S.theme = id; window.save(); }
+  if(save){ S.theme = id; window.save(); renderThemePicker(); }
 }
 
 function renderThemePicker(){
