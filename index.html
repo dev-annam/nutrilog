@@ -16,10 +16,12 @@
 :root{
   --bg:#080810;--surface:rgba(255,255,255,.04);--border:rgba(255,255,255,.08);
   --text:#f0f0f8;--muted:rgba(255,255,255,.4);
-  --purple:#a78bfa;--green:#34d399;--amber:#f59e0b;--blue:#38bdf8;--red:#f87171;
+  --accent1:#a78bfa;--accent2:#34d399;--accent3:#f59e0b;--accent4:#38bdf8;--red:#f87171;
   --grad:linear-gradient(135deg,#7c3aed,#059669);
   --sat:env(safe-area-inset-top,0px);--sab:env(safe-area-inset-bottom,0px);
 }
+/* theme aliases — these get overridden by applyTheme() */
+:root{ --purple:var(--accent1);--green:var(--accent2);--amber:var(--accent3);--blue:var(--accent4); }
 html,body{height:100%}
 body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
 body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellipse 60% 40% at 20% 10%,rgba(124,58,237,.08) 0%,transparent 60%),radial-gradient(ellipse 50% 50% at 80% 90%,rgba(5,150,105,.06) 0%,transparent 60%);pointer-events:none;z-index:0}
@@ -50,7 +52,7 @@ nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-w
 .sec{padding:0 14px}
 .card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:14px;margin-bottom:10px;animation:up .25s ease}
 @keyframes up{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
-.card-h{background:linear-gradient(135deg,rgba(124,58,237,.22),rgba(5,150,105,.12));border-color:rgba(167,139,250,.2)}
+.card-h{background:var(--card-h-bg,linear-gradient(135deg,rgba(124,58,237,.22),rgba(5,150,105,.12)));border-color:var(--card-h-border,rgba(167,139,250,.2))}
 .lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;font-weight:600;display:flex;justify-content:space-between;align-items:center;margin-bottom:7px}
 
 /* FORMS */
@@ -277,7 +279,7 @@ R.dashboard=function(){
   document.getElementById('tab-dashboard').innerHTML=`
     <div class="card card-h">
       <div class="lbl">Calories</div>
-      <div style="font-size:84px;font-weight:800;font-family:'Syne',sans-serif;line-height:1;letter-spacing:-1px;margin-bottom:4px">${Math.round(net)}</div>
+      <div style="font-size:54px;font-weight:800;font-family:'Syne',sans-serif;line-height:1;letter-spacing:-1px;margin-bottom:4px">${Math.round(net)}</div>
       <div style="font-size:12px;color:var(--muted);margin-bottom:12px">net calories</div>
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-bottom:12px;text-align:center">
         <div style="background:rgba(255,255,255,.05);border-radius:8px;padding:7px 4px"><div style="font-size:14px;font-weight:800;color:#fff">${g.calories}</div><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Goal</div></div>
@@ -402,34 +404,60 @@ async function doSearch(){
   if(!el)return;
   el.innerHTML=`<div style="padding:10px 0;color:var(--muted);font-size:13px;text-align:center">🔍 Searching…</div>`;
 
-  try{
-    // Open Food Facts — open CORS, no key needed
-    const url=`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(q)}&search_simple=1&action=process&json=1&page_size=10&fields=product_name,brands,nutriments,serving_size,serving_quantity`;
-    const res=await fetch(url,{signal:AbortSignal.timeout(8000)});
-    if(!res.ok)throw new Error('HTTP '+res.status);
-    const data=await res.json();
-    const products=(data.products||[]).filter(p=>p.product_name&&p.nutriments);
+  // Two endpoints — if one is slow/down the other picks up
+  const params=`search_terms=${encodeURIComponent(q)}&search_simple=1&action=process&json=1&page_size=12&fields=product_name,brands,nutriments,serving_size,serving_quantity`;
+  const endpoints=[
+    `https://world.openfoodfacts.org/cgi/search.pl?${params}`,
+    `https://world.openfoodfacts.net/cgi/search.pl?${params}`,
+  ];
 
-    if(!products.length){
-      el.innerHTML=`<div style="padding:10px 0;color:var(--muted);font-size:13px">No results found — try different keywords or enter manually.</div>`;
-      return;
-    }
-
-    el.innerHTML=`<div class="acbox">${products.slice(0,8).map((p,i)=>{
-      const n=p.nutriments;
-      const cal=Math.round(n['energy-kcal_100g']||n['energy-kcal']||((n['energy_100g']||0)/4.184)||0);
-      const brand=p.brands?p.brands.split(',')[0].trim():'';
-      return`<div class="acr" onclick="selectOFF(${i})">
-        <div><div class="acn">${esc(p.product_name)}</div>${brand?`<div class="acb">${esc(brand)}</div>`:''}</div>
-        <div class="acc">${cal?cal+'cal/100g':''}</div>
-      </div>`;
-    }).join('')}</div>`;
-
-    // Store results in memory for selection
-    window._searchResults=products;
-  }catch(e){
-    el.innerHTML=`<div style="padding:10px 0;color:var(--red);font-size:13px">⚠ Search failed: ${esc(e.message)}. Check your internet connection, or enter food manually below.</div>`;
+  async function tryFetch(url, ms){
+    const ctrl=new AbortController();
+    const t=setTimeout(()=>ctrl.abort(),ms);
+    try{ const r=await fetch(url,{signal:ctrl.signal}); clearTimeout(t); return r; }
+    catch(e){ clearTimeout(t); throw e; }
   }
+
+  let data=null;
+  for(let i=0;i<3;i++){
+    if(i>0){
+      el.innerHTML=`<div style="padding:10px 0;color:var(--muted);font-size:13px;text-align:center">🔍 Retrying… (${i+1}/3)</div>`;
+      await new Promise(r=>setTimeout(r,800));
+    }
+    try{
+      const res=await tryFetch(endpoints[i%2], 14000);
+      if(!res.ok) throw new Error('HTTP '+res.status);
+      data=await res.json();
+      break;
+    }catch(e){ /* try next */ }
+  }
+
+  if(!data){
+    el.innerHTML=`<div style="padding:12px 0;font-size:13px">
+      <div style="color:var(--amber);margin-bottom:6px">⚠ Food database unreachable right now.</div>
+      <div style="color:var(--muted);font-size:12px;line-height:1.6">The Open Food Facts server may be temporarily slow. Try again in a moment, or enter the food manually using the form below ↓</div>
+      <button class="btn bg" style="margin-top:10px;width:100%" onclick="doSearch()">↺ Try again</button>
+    </div>`;
+    return;
+  }
+
+  const products=(data.products||[]).filter(p=>p.product_name&&p.nutriments);
+  if(!products.length){
+    el.innerHTML=`<div style="padding:10px 0;color:var(--muted);font-size:13px">No results for "<b>${esc(q)}</b>" — try different keywords or enter manually.</div>`;
+    return;
+  }
+
+  el.innerHTML=`<div class="acbox">${products.slice(0,8).map((p,i)=>{
+    const n=p.nutriments;
+    const cal=Math.round(n['energy-kcal_100g']||n['energy-kcal']||((n['energy_100g']||0)/4.184)||0);
+    const brand=p.brands?p.brands.split(',')[0].trim():'';
+    return`<div class="acr" onclick="selectOFF(${i})">
+      <div><div class="acn">${esc(p.product_name)}</div>${brand?`<div class="acb">${esc(brand)}</div>`:''}</div>
+      <div class="acc">${cal?cal+'cal/100g':''}</div>
+    </div>`;
+  }).join('')}</div>`;
+
+  window._searchResults=products;
 }
 
 function selectOFF(i){
@@ -787,6 +815,10 @@ R.settings=function(){
       </div>
       <div class="fld"><div class="lbl" style="margin-bottom:4px">Water (ml)</div><input type="number" id="gW" value="${g.water}"></div>
     </div>
+    <div class="card">
+      <div class="lbl">🎨 Theme</div>
+      <div id="themePicker" style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px"></div>
+    </div>
     <button class="btn bp bw" style="font-size:15px;padding:14px" onclick="saveSettings()">✓ Save Settings</button>
     <div class="card" style="margin-top:10px">
       <div class="lbl">Data</div>
@@ -795,6 +827,7 @@ R.settings=function(){
         <button class="btn bd" style="flex:1" onclick="clearAll()">🗑 Clear All</button>
       </div>
     </div>`;
+  renderThemePicker();
 };
 function gPre(c,p,f,cb,btn){
   document.getElementById('gC').value=c;
@@ -810,6 +843,64 @@ function saveSettings(){
   S.goals={calories:parseInt(document.getElementById('gC').value)||2000,protein:parseInt(document.getElementById('gP').value)||150,fat:parseInt(document.getElementById('gF').value)||65,carbs:parseInt(document.getElementById('gCb').value)||225,water:parseInt(document.getElementById('gW').value)||2500};
   save();toast('Settings saved!');
   if(S.profile.name)document.getElementById('greeting').textContent=`Hey ${S.profile.name} 👋`;
+}
+
+// ── THEMES ───────────────────────────────────────────────────────────────────
+const THEMES = [
+  { id:'default',    name:'Deep Space',       bg:'#080810', a1:'#a78bfa', a2:'#34d399', a3:'#f59e0b', a4:'#38bdf8', grad:'135deg,#7c3aed,#059669',  card:'rgba(124,58,237,.22),rgba(5,150,105,.12)',  cardBorder:'rgba(167,139,250,.2)' },
+  { id:'terracotta', name:'Dusty Terracotta',  bg:'#1a100c', a1:'#e07a5f', a2:'#81b29a', a3:'#f2cc8f', a4:'#76c8d4', grad:'135deg,#e07a5f,#f2cc8f',  card:'rgba(224,122,95,.2),rgba(242,204,143,.1)',  cardBorder:'rgba(224,122,95,.25)' },
+  { id:'sage',       name:'Sage & Cream',      bg:'#0f130f', a1:'#a7c4a0', a2:'#d4e6b5', a3:'#e9c46a', a4:'#76c6d4', grad:'135deg,#a7c4a0,#d4e6b5',  card:'rgba(167,196,160,.18),rgba(212,230,181,.1)', cardBorder:'rgba(167,196,160,.22)' },
+  { id:'lavender',   name:'Lavender Dusk',     bg:'#0e0c16', a1:'#c9b8f5', a2:'#86efac', a3:'#fda4af', a4:'#7dd3fc', grad:'135deg,#c9b8f5,#f0abfc',  card:'rgba(201,184,245,.18),rgba(240,171,252,.1)', cardBorder:'rgba(201,184,245,.22)' },
+  { id:'mocha',      name:'Mocha Latte',       bg:'#110d09', a1:'#c8a882', a2:'#a8c5a0', a3:'#d4846a', a4:'#88c0d0', grad:'135deg,#c8a882,#e8d5b7',  card:'rgba(200,168,130,.18),rgba(232,213,183,.1)', cardBorder:'rgba(200,168,130,.22)' },
+  { id:'ocean',      name:'Ocean Depth',       bg:'#060e14', a1:'#48cae4', a2:'#52d9a0', a3:'#f77f5e', a4:'#ade8f4', grad:'135deg,#0077b6,#48cae4',  card:'rgba(72,202,228,.18),rgba(144,224,239,.1)',  cardBorder:'rgba(72,202,228,.22)' },
+  { id:'peach',      name:'Peach Blossom',     bg:'#150e0c', a1:'#ffb347', a2:'#7ecba1', a3:'#ff6b9d', a4:'#85d1e8', grad:'135deg,#ffb347,#ff6b9d',  card:'rgba(255,179,71,.18),rgba(255,107,157,.1)',  cardBorder:'rgba(255,179,71,.22)' },
+  { id:'emerald',    name:'Emerald Night',     bg:'#070f0a', a1:'#2ecc71', a2:'#1abc9c', a3:'#f39c12', a4:'#3498db', grad:'135deg,#2ecc71,#1abc9c',  card:'rgba(46,204,113,.18),rgba(26,188,156,.1)',   cardBorder:'rgba(46,204,113,.22)' },
+  { id:'sienna',     name:'Burnt Sienna',      bg:'#120a06', a1:'#e85d04', a2:'#80b918', a3:'#faa307', a4:'#4cc9f0', grad:'135deg,#e85d04,#faa307',  card:'rgba(232,93,4,.2),rgba(250,163,7,.1)',       cardBorder:'rgba(232,93,4,.25)' },
+  { id:'aurora',     name:'Midnight Aurora',   bg:'#080b14', a1:'#63b3ed', a2:'#68d391', a3:'#fbd38d', a4:'#76e4f7', grad:'135deg,#63b3ed,#68d391',  card:'rgba(99,179,237,.18),rgba(104,211,145,.1)',  cardBorder:'rgba(99,179,237,.2)' },
+];
+
+function applyTheme(id, save=true){
+  const t = THEMES.find(x=>x.id===id) || THEMES[0];
+  const r = document.documentElement.style;
+  r.setProperty('--bg',      t.bg);
+  r.setProperty('--accent1', t.a1);
+  r.setProperty('--accent2', t.a2);
+  r.setProperty('--accent3', t.a3);
+  r.setProperty('--accent4', t.a4);
+  r.setProperty('--purple',  t.a1);
+  r.setProperty('--green',   t.a2);
+  r.setProperty('--amber',   t.a3);
+  r.setProperty('--blue',    t.a4);
+  r.setProperty('--grad',    `linear-gradient(${t.grad})`);
+  // Update hero card gradient via CSS var
+  r.setProperty('--card-h-bg',     `linear-gradient(135deg,${t.card})`);
+  r.setProperty('--card-h-border', t.cardBorder);
+  // Update body bg and header bg
+  document.body.style.background = t.bg;
+  document.querySelector('.hdr').style.background = t.bg.replace('#','rgba(') + ',0)'.replace('rgba(','rgba(') || '';
+  // easier: just set a CSS var and use it
+  document.querySelector('meta[name="theme-color"]').setAttribute('content', t.bg);
+  if(save){ S.theme = id; window.save(); }
+}
+
+function renderThemePicker(){
+  const el = document.getElementById('themePicker');
+  if(!el) return;
+  const cur = S.theme || 'default';
+  el.innerHTML = THEMES.map(t => {
+    const isActive = t.id === cur;
+    return `<button onclick="applyTheme('${t.id}')" style="
+      padding:10px 8px;border-radius:12px;border:2px solid ${isActive?t.a1:'rgba(255,255,255,.08)'};
+      background:${t.bg};cursor:pointer;text-align:left;transition:all .2s;position:relative;
+      ${isActive?'box-shadow:0 0 0 1px '+t.a1+';':''}
+    ">
+      <div style="display:flex;gap:4px;margin-bottom:7px">
+        ${[t.a1,t.a2,t.a3,t.a4].map(c=>`<div style="width:14px;height:14px;border-radius:4px;background:${c}"></div>`).join('')}
+      </div>
+      <div style="font-size:11px;font-weight:700;color:#fff;font-family:'DM Sans',sans-serif">${t.name}</div>
+      ${isActive?`<div style="position:absolute;top:6px;right:8px;color:${t.a1};font-size:13px;font-weight:800">✓</div>`:''}
+    </button>`;
+  }).join('');
 }
 
 // ── DATA ─────────────────────────────────────────────────────────────────────
@@ -838,6 +929,7 @@ if('serviceWorker' in navigator){
 updateDate();
 R.dashboard();
 if(S.profile.name)document.getElementById('greeting').textContent=`Hey ${S.profile.name} 👋`;
+if(S.theme) applyTheme(S.theme, false);
 </script>
 </body>
 </html>
